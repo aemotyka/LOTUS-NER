@@ -5,36 +5,38 @@ from spacy.training.example import Example
 
 
 train_data = [
-    ("What is the price of 10 bananas?", {"entities": [(21, 23, "QUANTITY"), (24, 31, "PRODUCT")]}),
-    ("I need 23 chairs for the office", {"entities": [(7, 9, "QUANTITY"), (10, 16, "PRODUCT")]}),
-    ("Please order 7 laptops today", {"entities": [(13, 14, "QUANTITY"), (15, 22, "PRODUCT")]}),
-    ("We bought 15 desks last week", {"entities": [(10, 12, "QUANTITY"), (13, 18, "PRODUCT")]}),
-    ("Can you quote 4 monitors for me?", {"entities": [(14, 15, "QUANTITY"), (16, 24, "PRODUCT")]}),
-    ("Our team needs 12 keyboards", {"entities": [(15, 17, "QUANTITY"), (18, 27, "PRODUCT")]}),
-    ("She requested 9 notebooks yesterday", {"entities": [(14, 15, "QUANTITY"), (16, 25, "PRODUCT")]}),
-    ("Do we have 6 printers available?", {"entities": [(11, 12, "QUANTITY"), (13, 21, "PRODUCT")]}),
-    ("They delivered 18 boxes this morning", {"entities": [(15, 17, "QUANTITY"), (18, 23, "PRODUCT")]}),
-    ("He wants 3 cameras for the trip", {"entities": [(9, 10, "QUANTITY"), (11, 18, "PRODUCT")]}),
-    ("Add 25 pens to the supply list", {"entities": [(4, 6, "QUANTITY"), (7, 11, "PRODUCT")]}),
-    ("We require 14 tables for the event", {"entities": [(11, 13, "QUANTITY"), (14, 20, "PRODUCT")]}),
-    ("Could you send 8 speakers tomorrow?", {"entities": [(15, 16, "QUANTITY"), (17, 25, "PRODUCT")]}),
-    ("The store sold 11 backpacks today", {"entities": [(15, 17, "QUANTITY"), (18, 27, "PRODUCT")]}),
-    ("I need 5 whiteboards for training", {"entities": [(7, 8, "QUANTITY"), (9, 20, "PRODUCT")]}),
-    ("Please reserve 16 microphones", {"entities": [(15, 17, "QUANTITY"), (18, 29, "PRODUCT")]}),
-    ("We ordered 2 projectors last month", {"entities": [(11, 12, "QUANTITY"), (13, 23, "PRODUCT")]}),
-    ("Can I get 30 folders for filing?", {"entities": [(10, 12, "QUANTITY"), (13, 20, "PRODUCT")]}),
-    ("They need 13 tablets right away", {"entities": [(10, 12, "QUANTITY"), (13, 20, "PRODUCT")]}),
-    ("Our office uses 20 staplers each year", {"entities": [(16, 18, "QUANTITY"), (19, 27, "PRODUCT")]}),
-    ("She asked for 6 lamps in total", {"entities": [(14, 15, "QUANTITY"), (16, 21, "PRODUCT")]}),
-    ("He purchased 10 shelves yesterday", {"entities": [(13, 15, "QUANTITY"), (16, 23, "PRODUCT")]}),
-    ("We need 17 routers for the building", {"entities": [(8, 10, "QUANTITY"), (11, 18, "PRODUCT")]}),
-    ("Please buy 21 mugs for the kitchen", {"entities": [(11, 13, "QUANTITY"), (14, 18, "PRODUCT")]}),
-    ("The school ordered 24 lockers", {"entities": [(19, 21, "QUANTITY"), (22, 29, "PRODUCT")]}),
-    ("Can you find 19 cables for setup?", {"entities": [(13, 15, "QUANTITY"), (16, 22, "PRODUCT")]}),
-    ("I want 28 blankets for the shelter", {"entities": [(7, 9, "QUANTITY"), (10, 18, "PRODUCT")]}),
-    ("They requested 22 helmets for staff", {"entities": [(15, 17, "QUANTITY"), (18, 25, "PRODUCT")]}),
-    ("We need 1 scanner by Monday", {"entities": [(8, 9, "QUANTITY"), (10, 17, "PRODUCT")]}),
-    ("Please ship 26 uniforms this week", {"entities": [(12, 14, "QUANTITY"), (15, 23, "PRODUCT")]}),
+    ("Cartier watch with blue strap", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 13, "THING"), (19, 29, "MODIFIER")]}),
+    ("Van Gogh painting of buildings and trees", {"entities": [(0, 8, "MAKER_ARTIST"), (9, 17, "THING"), (21, 40, "MODIFIER")]}),
+    ("Rolex watch with black dial", {"entities": [(0, 5, "MAKER_ARTIST"), (6, 11, "THING"), (17, 27, "MODIFIER")]}),
+    ("Tiffany necklace with diamonds", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 16, "THING"), (22, 30, "MODIFIER")]}),
+    ("Picasso drawing of a woman", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 15, "THING"), (19, 26, "MODIFIER")]}),
+    ("Monet painting of water lilies", {"entities": [(0, 5, "MAKER_ARTIST"), (6, 14, "THING"), (18, 30, "MODIFIER")]}),
+    ("Cartier bracelet in gold", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 17, "THING"), (21, 25, "MODIFIER")]}),
+    ("Bulgari ring with sapphire", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 12, "THING"), (18, 26, "MODIFIER")]}),
+    ("Van Cleef bracelet with onyx", {"entities": [(0, 9, "MAKER_ARTIST"), (10, 19, "THING"), (25, 30, "MODIFIER")]}),
+    ("Patek Philippe watch in platinum", {"entities": [(0, 14, "MAKER_ARTIST"), (15, 20, "THING"), (24, 32, "MODIFIER")]}),
+    ("Ancient Roman tiles with geometric patterns", {"entities": [(0, 13, "MAKER_ARTIST"), (14, 19, "THING"), (25, 43, "MODIFIER")]}),
+    ("Chinese vase with dragon motif", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 12, "THING"), (18, 30, "MODIFIER")]}),
+    ("French cabinet in mahogany", {"entities": [(0, 6, "MAKER_ARTIST"), (7, 14, "THING"), (18, 27, "MODIFIER")]}),
+    ("Italian mirror with gilt frame", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 14, "THING"), (20, 30, "MODIFIER")]}),
+    ("Persian rug with floral design", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 11, "THING"), (17, 30, "MODIFIER")]}),
+    ("Louis Vuitton trunk with brass corners", {"entities": [(0, 13, "MAKER_ARTIST"), (14, 19, "THING"), (25, 38, "MODIFIER")]}),
+    ("Hermes bag in red leather", {"entities": [(0, 6, "MAKER_ARTIST"), (7, 10, "THING"), (14, 24, "MODIFIER")]}),
+    ("Faberge box with enamel flowers", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 11, "THING"), (17, 31, "MODIFIER")]}),
+    ("Ming bowl with blue decoration", {"entities": [(0, 4, "MAKER_ARTIST"), (5, 9, "THING"), (15, 30, "MODIFIER")]}),
+    ("Roman bust in marble", {"entities": [(0, 5, "MAKER_ARTIST"), (6, 10, "THING"), (14, 20, "MODIFIER")]}),
+    ("Cartier brooch with rubies and diamonds", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 14, "THING"), (20, 40, "MODIFIER")]}),
+    ("Van Gogh drawing with village scene", {"entities": [(0, 8, "MAKER_ARTIST"), (9, 16, "THING"), (22, 35, "MODIFIER")]}),
+    ("Rolex watch with green bezel", {"entities": [(0, 5, "MAKER_ARTIST"), (6, 11, "THING"), (17, 28, "MODIFIER")]}),
+    ("Tiffany bracelet with heart charms", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 17, "THING"), (23, 35, "MODIFIER")]}),
+    ("Picasso painting of musicians", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 16, "THING"), (20, 29, "MODIFIER")]}),
+    ("Monet watercolor of gardens", {"entities": [(0, 5, "MAKER_ARTIST"), (6, 16, "THING"), (20, 27, "MODIFIER")]}),
+    ("Bulgari necklace with emerald pendant", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 16, "THING"), (22, 37, "MODIFIER")]}),
+    ("Patek Philippe clock with moonphase", {"entities": [(0, 14, "MAKER_ARTIST"), (15, 20, "THING"), (26, 35, "MODIFIER")]}),
+    ("Chinese screen with lacquer panels", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 14, "THING"), (20, 34, "MODIFIER")]}),
+    ("French chair with carved arms", {"entities": [(0, 6, "MAKER_ARTIST"), (7, 12, "THING"), (18, 29, "MODIFIER")]}),
+    ("Italian table in walnut", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 13, "THING"), (17, 23, "MODIFIER")]}),
+    ("Persian carpet with medallion pattern", {"entities": [(0, 7, "MAKER_ARTIST"), (8, 14, "THING"), (20, 38, "MODIFIER")]}),
 ]
 
 
@@ -68,14 +70,14 @@ with nlp.disable_pipes(*other_pipes):
             nlp.update(examples, drop=0.5, losses=losses)
         print(f'Epoch {epoch + 1}, Losses: {losses}')
 
-nlp.to_disk('custom_ner_model')
+nlp.to_disk('custom_query_derivation')
 
-trained_nlp = spacy.load('custom_ner_model')
+trained_nlp = spacy.load('custom_query_derivation')
 
 test_texts = [
-    "How much for 3 oranges?",
-    "I want 15 chairs for the conference.",
-    "Can you give me the price for 6 desks?"
+    "Ancient Egyptian Stela",
+    "Russian lockbox with Art Deco key",
+    "Arabian camel saddle made of leather"
 ]
 
 for text in test_texts:
