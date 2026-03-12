@@ -1,2 +1,6 @@
 custom_ner_model/
 custom_query_derivation/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
