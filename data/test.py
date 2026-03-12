@@ -70,5 +70,10 @@ test_data = [
     'The Port of Hamburg',
     'Van Gogh village scene drawing',
     'watch Cartier blue dial',
-    'rare Cartier blue enamel bracelet'
+    'rare Cartier blue enamel bracelet',
+    'Degas cat drawing in blue',
+    'Carlo Crivelli classical Madonna and Child',
+    'Paul Klee cubist sketch',
+    'Montague Dawson painting of ship with British naval ensign',
+    'Rameau painting'
 ]

@@ -79,3 +79,17 @@ The JSON contains one object per test example with:
 - `text`
 - `entities`
 - Each entity's `text`, `label`, `start`, and `end`
+
+## Notebook inference
+
+If you want to run the trained model on your own inputs without using terminal Python snippets, open:
+
+`notebooks/inference.ipynb`
+
+The notebook:
+
+- loads `custom_query_derivation`
+- lets you edit a single `text` value or a list of `texts`
+- returns structured entity output for manual inspection
+
+Train the model with `python3 main.py` first if the saved model folder does not exist yet.
