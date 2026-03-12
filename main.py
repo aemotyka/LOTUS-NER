@@ -55,7 +55,6 @@ def train_model():
                     examples.append(example)
                 nlp.update(examples, drop=0.5, losses=losses)
             print(f"Epoch {epoch + 1}, Losses: {losses}")
-
     model_path = Path("custom_query_derivation")
     nlp.to_disk(model_path)
     return spacy.load(model_path)
@@ -76,10 +75,6 @@ def collect_results(trained_nlp):
             for ent in doc.ents
         ]
         results.append({"text": text, "entities": entities})
-
-        print(f"Text: {text}")
-        print("Entities", [(entity["text"], entity["label"]) for entity in entities])
-        print()
 
     return results
 
