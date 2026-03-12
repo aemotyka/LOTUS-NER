@@ -1,13 +1,18 @@
 # spaCy NER
 
-This project trains a custom spaCy NER model from the examples in `train_data`.
+This project trains a custom spaCy NER model from:
+
+- `train_data` in `data/train.py`
+- `test_data` in `data/test.py`
+
+`data/test.py` also keeps the original labeled tuples in `annotated_test_data` if you want to inspect those later.
 
 ## Validate entity offsets
 
 Run the validator before training:
 
 ```bash
-python3 test.py
+python3 util/check_offsets.py
 ```
 
 What it checks:
@@ -15,9 +20,9 @@ What it checks:
 - Every `(start, end, label)` span stays inside the source text.
 - Every span matches spaCy token boundaries exactly.
 
-If the data is valid, `test.py` prints a success message and exits with status `0`.
+If the data is valid, `util/check_offsets.py` prints a success message and exits with status `0`.
 
-If the data is invalid, `test.py` prints:
+If the data is invalid, `util/check_offsets.py` prints:
 
 - The example text
 - The offending entity tuple
@@ -34,19 +39,19 @@ overlapping spaCy token boundaries.
 Preview the proposed fixes:
 
 ```bash
-python3 fix_offsets.py
+python3 util/fix_offsets.py
 ```
 
-Apply the fixes to `data.py`:
+Apply the fixes to `data/train.py`:
 
 ```bash
-python3 fix_offsets.py --write
+python3 util/fix_offsets.py --write
 ```
 
 After writing, run this again to confirm the dataset is clean:
 
 ```bash
-python3 test.py
+python3 util/check_offsets.py
 ```
 
 This is meant for off-by-one and token-boundary issues like trailing spaces or end offsets that run one character
@@ -60,12 +65,13 @@ Run:
 python3 main.py
 ```
 
-`main.py` runs the same validation first and stops immediately if any training offsets are invalid.
+`main.py` runs the same validation first and stops immediately if any training offsets are invalid. Each run
+overwrites `outputs/test-results.json` by default.
 
-To save the test-set predictions in a structured JSON file for later review, run:
+To save the test-set predictions somewhere else, run:
 
 ```bash
-python3 main.py --results-path outputs/test-results.json
+python3 main.py --results-path outputs/custom-results.json
 ```
 
 The JSON contains one object per test example with:

@@ -1,13 +1,19 @@
 import argparse
-import pprint
 from pathlib import Path
+import sys
 
 import spacy
 
-from data import train_data, validate_training_data
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from data.train import train_data
+from util.validation import validate_training_data
 
 
-DATA_FILE = Path(__file__).with_name("data.py")
+DATA_FILE = ROOT / "data" / "train.py"
 
 
 def propose_span_fix(doc, start, end, label):
@@ -69,12 +75,16 @@ def build_fixed_dataset(dataset):
     return fixed_dataset, changes
 
 
+def serialize_train_data(dataset):
+    lines = ["train_data = [\n"]
+    for example in dataset:
+        lines.append(f"    {example!r},\n")
+    lines.append("]\n")
+    return "".join(lines)
+
+
 def write_fixed_train_data(path, fixed_dataset):
-    source = path.read_text()
-    start = source.index("train_data = [")
-    end = source.index("\n\ntest_data = [", start)
-    replacement = "train_data = " + pprint.pformat(fixed_dataset, width=100, sort_dicts=False)
-    path.write_text(source[:start] + replacement + source[end:])
+    path.write_text(serialize_train_data(fixed_dataset))
 
 
 def main():
@@ -84,14 +94,14 @@ def main():
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Write the fixed train_data back to data.py.",
+        help="Write the fixed train_data back to data/train.py.",
     )
     args = parser.parse_args()
 
     fixed_dataset, changes = build_fixed_dataset(train_data)
 
     if not changes:
-        print("No invalid offsets found. data.py does not need changes.")
+        print("No invalid offsets found. data/train.py does not need changes.")
         return
 
     for change in changes:
@@ -101,7 +111,7 @@ def main():
         )
 
     if not args.write:
-        print("\nDry run only. Re-run with --write to patch data.py.")
+        print("\nDry run only. Re-run with --write to patch data/train.py.")
         return
 
     write_fixed_train_data(DATA_FILE, fixed_dataset)

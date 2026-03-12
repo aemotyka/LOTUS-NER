@@ -4,3 +4,5 @@ custom_query_derivation/
 __pycache__/
 *.pyc
 *.pyo
+.DS_Store
+outputs/*

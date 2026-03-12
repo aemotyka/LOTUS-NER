@@ -7,7 +7,9 @@ import spacy
 from spacy.training.example import Example
 from spacy.util import minibatch
 
-from data import test_data, train_data, validate_training_data
+from data.test import test_data
+from data.train import train_data
+from util.validation import validate_training_data
 
 
 def parse_args():
@@ -15,7 +17,8 @@ def parse_args():
     parser.add_argument(
         "--results-path",
         type=Path,
-        help="Optional path to write test predictions as JSON.",
+        default=Path("outputs/test-results.json"),
+        help="Path to write test predictions as JSON.",
     )
     return parser.parse_args()
 
@@ -91,9 +94,7 @@ def main():
     args = parse_args()
     trained_nlp = train_model()
     results = collect_results(trained_nlp)
-
-    if args.results_path:
-        write_results(args.results_path, results)
+    write_results(args.results_path, results)
 
 
 if __name__ == "__main__":
