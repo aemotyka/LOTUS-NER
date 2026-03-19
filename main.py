@@ -4,6 +4,7 @@ import json
 import math
 import random
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -79,6 +80,18 @@ def parse_args():
         default=42,
         help="Random seed for reproducible train/validation splits and shuffling.",
     )
+    parser.add_argument(
+        "--early-stopping-start-epoch",
+        type=int,
+        default=25,
+        help="Do not stop early before this 1-based epoch number.",
+    )
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=5,
+        help="Stop after this many epochs without validation F1 improvement once early stopping is active.",
+    )
     return parser.parse_args()
 
 
@@ -110,6 +123,13 @@ def split_dataset(dataset, validation_split, seed):
     validation_data = shuffled[:validation_size]
     training_data = shuffled[validation_size:]
     return training_data, validation_data
+
+
+def validate_early_stopping_args(start_epoch, patience):
+    if start_epoch < 1:
+        raise ValueError("--early-stopping-start-epoch must be at least 1.")
+    if patience < 1:
+        raise ValueError("--early-stopping-patience must be at least 1.")
 
 
 def build_examples(nlp, dataset):
@@ -164,10 +184,21 @@ def print_per_type_metrics(title, metrics):
         )
 
 
-def train_model(train_data, validation_data, model_path, epochs, batch_size, dropout, seed):
+def train_model(
+    train_data,
+    validation_data,
+    model_path,
+    epochs,
+    batch_size,
+    dropout,
+    seed,
+    early_stopping_start_epoch,
+    early_stopping_patience,
+):
     validate_training_data(dataset=train_data)
     if validation_data:
         validate_training_data(dataset=validation_data)
+        validate_early_stopping_args(early_stopping_start_epoch, early_stopping_patience)
 
     random.seed(seed)
 
@@ -190,32 +221,73 @@ def train_model(train_data, validation_data, model_path, epochs, batch_size, dro
     )
     if test_data:
         print("Note: data.test is unlabeled, so precision/recall/F1 are reported for train and validation only.")
+    if validation_data:
+        print(
+            "Early stopping | "
+            f"start_epoch={early_stopping_start_epoch} | "
+            f"patience={early_stopping_patience}"
+        )
 
     other_pipes = [pipe for pipe in nlp.pipe_names if pipe != "ner"]
     with nlp.disable_pipes(*other_pipes):
         optimizer = nlp.begin_training()
+        best_validation_f1 = float("-inf")
+        best_epoch = 0
+        epochs_without_improvement = 0
 
-        for epoch in range(epochs):
-            random.shuffle(train_data)
-            losses = {}
-            total_batches = max(1, math.ceil(len(train_data) / batch_size))
-            batch_iterator = tqdm(
-                minibatch(train_data, size=batch_size),
-                total=total_batches,
-                desc=f"Epoch {epoch + 1}/{epochs}",
-                leave=False,
-                dynamic_ncols=True,
-                file=sys.stderr,
-            )
+        with tempfile.TemporaryDirectory(prefix="spacy_ner_best_") as best_model_dir_str:
+            best_model_dir = Path(best_model_dir_str)
 
-            for batch in batch_iterator:
-                examples = build_examples(nlp, batch)
-                nlp.update(examples, sgd=optimizer, drop=dropout, losses=losses)
-                batch_iterator.set_postfix(loss=f"{losses.get('ner', 0.0):.4f}")
+            for epoch in range(epochs):
+                random.shuffle(train_data)
+                losses = {}
+                total_batches = max(1, math.ceil(len(train_data) / batch_size))
+                batch_iterator = tqdm(
+                    minibatch(train_data, size=batch_size),
+                    total=total_batches,
+                    desc=f"Epoch {epoch + 1}/{epochs}",
+                    leave=False,
+                    dynamic_ncols=True,
+                    file=sys.stderr,
+                )
 
-            train_metrics = evaluate_dataset(nlp, train_data)
-            validation_metrics = evaluate_dataset(nlp, validation_data)
-            print_epoch_summary(epoch + 1, epochs, losses, train_metrics, validation_metrics)
+                for batch in batch_iterator:
+                    examples = build_examples(nlp, batch)
+                    nlp.update(examples, sgd=optimizer, drop=dropout, losses=losses)
+                    batch_iterator.set_postfix(loss=f"{losses.get('ner', 0.0):.4f}")
+
+                train_metrics = evaluate_dataset(nlp, train_data)
+                validation_metrics = evaluate_dataset(nlp, validation_data)
+                print_epoch_summary(epoch + 1, epochs, losses, train_metrics, validation_metrics)
+
+                if validation_metrics is None:
+                    continue
+
+                current_validation_f1 = validation_metrics["f1"]
+                if current_validation_f1 > best_validation_f1:
+                    best_validation_f1 = current_validation_f1
+                    best_epoch = epoch + 1
+                    epochs_without_improvement = 0
+                    nlp.to_disk(best_model_dir)
+                    continue
+
+                if epoch + 1 >= early_stopping_start_epoch:
+                    epochs_without_improvement += 1
+                    if epochs_without_improvement >= early_stopping_patience:
+                        print(
+                            "Early stopping triggered | "
+                            f"best_epoch={best_epoch} | "
+                            f"best_validation_F1={best_validation_f1:.2f}%"
+                        )
+                        break
+
+            if validation_data and best_epoch > 0:
+                nlp = spacy.load(best_model_dir)
+                print(
+                    "Restored best validation checkpoint | "
+                    f"epoch={best_epoch} | "
+                    f"validation_F1={best_validation_f1:.2f}%"
+                )
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     nlp.to_disk(model_path)
@@ -301,6 +373,8 @@ def main():
             batch_size=args.batch_size,
             dropout=args.dropout,
             seed=args.seed,
+            early_stopping_start_epoch=args.early_stopping_start_epoch,
+            early_stopping_patience=args.early_stopping_patience,
         )
         results = collect_results(trained_nlp)
         write_results(args.results_path, results)

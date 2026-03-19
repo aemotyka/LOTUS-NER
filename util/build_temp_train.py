@@ -23,6 +23,7 @@ DEFAULT_SOURCE_FILES = [
     "clean_keep.json",
     "manually_reviewed_relabelled.json",
     "train_old_relabelled_new_schema.py",
+    "priority_patch_500_examples.py",
 ]
 
 Entity = tuple[int, int, str]
@@ -117,8 +118,14 @@ def load_python_examples(path):
     spec.loader.exec_module(module)
 
     raw_data = getattr(module, "train_data", None)
+    if raw_data is None:
+        raw_data = getattr(module, path.stem, None)
+
     if not isinstance(raw_data, list):
-        raise ValueError(f"Expected `train_data` list in {path}, got {type(raw_data).__name__}")
+        raise ValueError(
+            f"Expected a dataset list in {path} under `train_data` or `{path.stem}`, "
+            f"got {type(raw_data).__name__}"
+        )
 
     examples: list[SpaCyExample] = []
     for example_index, item in enumerate(raw_data):
