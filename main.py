@@ -3,6 +3,8 @@ import importlib
 import json
 import math
 import random
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import spacy
@@ -13,8 +15,10 @@ from tqdm.auto import tqdm
 from data.test import test_data
 from util.validation import validate_training_data
 
-DEFAULT_MODEL_PATH = Path("models") / "expanded_query_derivation"
-DEFAULT_RESULTS_PATH = Path("outputs") / "test-results.json"
+ROOT = Path(__file__).resolve().parent
+DEFAULT_MODEL_PATH = ROOT / "models" / "expanded_query_derivation"
+DEFAULT_RESULTS_PATH = ROOT / "outputs" / "test-results.json"
+DEFAULT_RUN_LOG_PATH = ROOT / "run.txt"
 
 
 def parse_args():
@@ -38,6 +42,12 @@ def parse_args():
         type=Path,
         default=DEFAULT_RESULTS_PATH,
         help="Path to write unlabeled test predictions as JSON.",
+    )
+    parser.add_argument(
+        "--run-log-path",
+        type=Path,
+        default=DEFAULT_RUN_LOG_PATH,
+        help="Path to write a copy of console output.",
     )
     parser.add_argument(
         "--epochs",
@@ -194,6 +204,8 @@ def train_model(train_data, validation_data, model_path, epochs, batch_size, dro
                 total=total_batches,
                 desc=f"Epoch {epoch + 1}/{epochs}",
                 leave=False,
+                dynamic_ncols=True,
+                file=sys.stderr,
             )
 
             for batch in batch_iterator:
@@ -244,21 +256,54 @@ def write_results(path, results):
     print(f"Wrote structured test predictions for {len(results)} queries to {path}")
 
 
+class TeeStream:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return any(getattr(stream, "isatty", lambda: False)() for stream in self.streams)
+
+
+@contextmanager
+def tee_console_output(log_path):
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    original_stdout = sys.stdout
+    with log_path.open("w", encoding="utf-8") as log_file:
+        sys.stdout = TeeStream(original_stdout, log_file)
+        try:
+            print(f"Writing console output to {log_path}")
+            yield
+        finally:
+            sys.stdout.flush()
+            sys.stdout = original_stdout
+
+
 def main():
     args = parse_args()
-    dataset = load_train_data(args.train_data_module)
-    train_data, validation_data = split_dataset(dataset, args.validation_split, args.seed)
-    trained_nlp = train_model(
-        train_data=train_data,
-        validation_data=validation_data,
-        model_path=args.model_path,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        dropout=args.dropout,
-        seed=args.seed,
-    )
-    results = collect_results(trained_nlp)
-    write_results(args.results_path, results)
+    with tee_console_output(args.run_log_path):
+        dataset = load_train_data(args.train_data_module)
+        train_data, validation_data = split_dataset(dataset, args.validation_split, args.seed)
+        trained_nlp = train_model(
+            train_data=train_data,
+            validation_data=validation_data,
+            model_path=args.model_path,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            dropout=args.dropout,
+            seed=args.seed,
+        )
+        results = collect_results(trained_nlp)
+        write_results(args.results_path, results)
 
 
 if __name__ == "__main__":
