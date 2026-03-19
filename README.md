@@ -2,30 +2,42 @@
 
 This repo fine-tunes a spaCy NER model to parse auction search queries into structured pieces used by the search pipeline. Each query is decomposed into:
 
-TYPE: the object being searched for, including meaningful compound types like coffee table, pocket watch, or machine gun
+OBJECT_TYPE: the item or object being searched for
 
-MAKER_ARTIST: the artist, maker, or brand when one is explicitly present
+ARTIST / BRAND: artist, maker, or brand when explicitly present
 
-DESCRIPTOR: other meaningful modifiers, kept as the smallest span that preserves meaning, such as white gold, old mine cut diamonds, calendar complication, or Madonna and Child
+MATERIAL_TECHNIQUE / SUBJECT_THEME / ORIGIN / PERIOD / HISTORICAL_CONTEXT: expanded descriptive labels retained from the new training dataset
 
 ## Run
 
 Train the model and generate test results:
 
 ```bash
-python main.py
+python3 main.py
 ```
 
 Check training-data offsets before training:
 
 ```bash
-python util/check_offsets.py
+python3 util/check_offsets.py
+```
+
+Validate the legacy dataset instead:
+
+```bash
+python3 util/check_offsets.py --train-data-module data.train_old
+```
+
+Convert an expanded BIO JSON file from the repo root into `/data` training format:
+
+```bash
+python3 util/fix_dataset.py --input consolidated_ner_result_full.json --output data/train.py
 ```
 
 Auto-fix offset issues in `data/train.py`:
 
 ```bash
-python util/fix_offsets.py --write
+python3 util/fix_offsets.py --write
 ```
 
 For notebook-based inference, open:
@@ -56,9 +68,9 @@ Notebook for running the trained model on your own inputs:
 
 ## Output
 
-After `python main.py`, the trained model is written to:
+After `python3 main.py`, the trained model is written to:
 
-`custom_query_derivation/`
+`models/expanded_query_derivation/`
 
 The test run output is written to:
 

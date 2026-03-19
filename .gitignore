@@ -1,8 +1,8 @@
-custom_ner_model/
-custom_query_derivation/
+.venv/
 .vscode/
 __pycache__/
 *.pyc
 *.pyo
 .DS_Store
-outputs/*
+models/
+outputs/
