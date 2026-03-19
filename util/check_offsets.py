@@ -21,12 +21,18 @@ def load_train_data(module_name):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Validate that train_data entity offsets align to spaCy token boundaries."
+        description="Validate that train_data entities align to token boundaries and do not overlap."
     )
     parser.add_argument(
         "--train-data-module",
         default="data.train",
         help="Python module containing spaCy training data as `train_data`.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of issues to print when validation fails.",
     )
     args = parser.parse_args()
 
@@ -35,10 +41,13 @@ def main():
 
     if issues:
         print(f"Invalid entity offsets found in {args.train_data_module}:\n")
-        print(format_validation_issues(issues))
+        display_issues = issues[:args.limit]
+        print(format_validation_issues(display_issues))
+        if len(issues) > args.limit:
+            print(f"\nShowing first {args.limit} of {len(issues)} issues.")
         raise SystemExit(1)
 
-    print(f"All entity offsets in {args.train_data_module} align with spaCy token boundaries.")
+    print(f"All entities in {args.train_data_module} align with spaCy token boundaries and do not overlap.")
 
 
 if __name__ == "__main__":

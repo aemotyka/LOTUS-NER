@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import json
 from collections import Counter
 from pathlib import Path
@@ -18,9 +19,10 @@ from util.validation import validate_training_data
 DEFAULT_INPUT_DIR = ROOT / "temp-training"
 DEFAULT_OUTPUT_PATH = ROOT / "data" / "temp_train.py"
 DEFAULT_SOURCE_FILES = [
-    "clean_enriched.json",
+    "clean_enriched_corrected_no_overlap.json",
     "clean_keep.json",
     "manually_reviewed_relabelled.json",
+    "train_old_relabelled_new_schema.py",
 ]
 
 Entity = tuple[int, int, str]
@@ -106,6 +108,43 @@ def load_spacy_examples(path):
     return examples
 
 
+def load_python_examples(path):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load Python dataset from {path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    raw_data = getattr(module, "train_data", None)
+    if not isinstance(raw_data, list):
+        raise ValueError(f"Expected `train_data` list in {path}, got {type(raw_data).__name__}")
+
+    examples: list[SpaCyExample] = []
+    for example_index, item in enumerate(raw_data):
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ValueError(f"{path.name}[{example_index}] is not a (text, annotations) pair: {item!r}")
+
+        text, annotations = item
+        if not isinstance(text, str) or not isinstance(annotations, dict):
+            raise ValueError(
+                f"{path.name}[{example_index}] has invalid types for text or annotations: {item!r}"
+            )
+
+        entities = normalize_entities(annotations.get("entities", []), path.name, example_index)
+        examples.append((text, {"entities": entities}))
+
+    return examples
+
+
+def load_examples(path):
+    if path.suffix == ".json":
+        return load_spacy_examples(path)
+    if path.suffix == ".py":
+        return load_python_examples(path)
+    raise ValueError(f"Unsupported source file type: {path}")
+
+
 def merge_examples(input_dir):
     merged_by_text: dict[str, SpaCyExample] = {}
     source_by_text: dict[str, tuple[str, int]] = {}
@@ -119,7 +158,7 @@ def merge_examples(input_dir):
         if not path.exists():
             raise FileNotFoundError(f"Missing expected temp-training file: {path}")
 
-        examples = load_spacy_examples(path)
+        examples = load_examples(path)
         source_row_count += len(examples)
 
         for example_index, example in enumerate(examples):
