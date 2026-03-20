@@ -5,6 +5,7 @@ import math
 import random
 import sys
 import tempfile
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -13,17 +14,19 @@ from spacy.training.example import Example
 from spacy.util import minibatch
 from tqdm.auto import tqdm
 
-from data.test import test_data
+from data.test import test_data as prediction_queries
 from util.validation import validate_training_data
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_MODEL_PATH = ROOT / "models" / "expanded_query_derivation"
+DEFAULT_MODEL_PATH = ROOT / "models" / "consolidated_query_derivation"
 DEFAULT_RESULTS_PATH = ROOT / "outputs" / "test-results.json"
 DEFAULT_RUN_LOG_PATH = ROOT / "run.txt"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train the spaCy NER model and run predictions on test_data.")
+    parser = argparse.ArgumentParser(
+        description="Train the spaCy NER model and run predictions on the unlabeled queries in data.test."
+    )
     parser.add_argument(
         "--train-data-module",
         default="data.train",
@@ -71,8 +74,14 @@ def parse_args():
     parser.add_argument(
         "--validation-split",
         type=float,
-        default=0.2,
+        default=0.1,
         help="Fraction of train_data to hold out for validation metrics.",
+    )
+    parser.add_argument(
+        "--test-split",
+        type=float,
+        default=0.1,
+        help="Fraction of train_data to hold out for final test metrics.",
     )
     parser.add_argument(
         "--seed",
@@ -103,26 +112,48 @@ def load_train_data(module_name):
     return list(train_data)
 
 
-def split_dataset(dataset, validation_split, seed):
+def split_dataset(dataset, validation_split, test_split, seed):
     if not 0 <= validation_split < 1:
         raise ValueError("--validation-split must be between 0 and 1 (exclusive of 1).")
+    if not 0 <= test_split < 1:
+        raise ValueError("--test-split must be between 0 and 1 (exclusive of 1).")
+    if validation_split + test_split >= 1:
+        raise ValueError("--validation-split plus --test-split must be less than 1.")
 
-    if len(dataset) < 2 or validation_split == 0:
-        return list(dataset), []
+    required_nonempty_splits = 1 + int(validation_split > 0) + int(test_split > 0)
+    if len(dataset) < required_nonempty_splits:
+        raise ValueError(
+            "Dataset is too small for the requested train/validation/test split. "
+            f"Got {len(dataset)} examples but need at least {required_nonempty_splits}."
+        )
+
+    if validation_split == 0 and test_split == 0:
+        return list(dataset), [], []
 
     shuffled = list(dataset)
     rng = random.Random(seed)
     rng.shuffle(shuffled)
 
     validation_size = int(len(shuffled) * validation_split)
-    if validation_size == 0:
+    test_size = int(len(shuffled) * test_split)
+
+    if validation_split > 0 and validation_size == 0:
         validation_size = 1
-    if validation_size >= len(shuffled):
-        validation_size = len(shuffled) - 1
+    if test_split > 0 and test_size == 0:
+        test_size = 1
+
+    while validation_size + test_size >= len(shuffled):
+        if test_size >= validation_size and test_size > 0:
+            test_size -= 1
+        elif validation_size > 0:
+            validation_size -= 1
+        else:
+            break
 
     validation_data = shuffled[:validation_size]
-    training_data = shuffled[validation_size:]
-    return training_data, validation_data
+    test_data = shuffled[validation_size:validation_size + test_size]
+    training_data = shuffled[validation_size + test_size:]
+    return training_data, validation_data, test_data
 
 
 def validate_early_stopping_args(start_epoch, patience):
@@ -141,52 +172,86 @@ def evaluate_dataset(nlp, dataset):
         return None
 
     scores = nlp.evaluate(build_examples(nlp, dataset))
+    support_by_label = Counter()
+    for _, annotations in dataset:
+        for _, _, label in annotations.get("entities", []):
+            support_by_label[label] += 1
+
+    per_type_scores = {}
+    for label, label_metrics in scores.get("ents_per_type", {}).items():
+        per_type_scores[label] = {
+            **label_metrics,
+            "support": support_by_label.get(label, 0),
+        }
+
     return {
         "precision": scores.get("ents_p", 0.0),
         "recall": scores.get("ents_r", 0.0),
         "f1": scores.get("ents_f", 0.0),
-        "per_type": scores.get("ents_per_type", {}),
+        "support": sum(support_by_label.values()),
+        "per_type": per_type_scores,
     }
 
 
-def format_metrics(metrics):
+def format_metrics(metrics, include_support=False):
     if metrics is None:
         return "P=n/a R=n/a F1=n/a"
-    return (
-        f"P={metrics['precision']:.2f}% "
-        f"R={metrics['recall']:.2f}% "
-        f"F1={metrics['f1']:.2f}%"
+    formatted = (
+        f"P={metrics['precision'] * 100:.2f}% "
+        f"R={metrics['recall'] * 100:.2f}% "
+        f"F1={metrics['f1'] * 100:.2f}%"
     )
+    if include_support:
+        formatted = f"{formatted} support={metrics.get('support', 0)}"
+    return formatted
 
 
-def print_epoch_summary(epoch, epochs, losses, train_metrics, validation_metrics):
+def print_epoch_summary(epoch, epochs, losses, train_metrics, validation_metrics, test_metrics):
     ner_loss = losses.get("ner", 0.0)
     print(
         f"Epoch {epoch}/{epochs} | "
         f"loss={ner_loss:.4f} | "
         f"train {format_metrics(train_metrics)} | "
-        f"validation {format_metrics(validation_metrics)}"
+        f"validation {format_metrics(validation_metrics)} | "
+        f"test {format_metrics(test_metrics)}"
     )
 
 
-def print_per_type_metrics(title, metrics):
-    if metrics is None or not metrics["per_type"]:
+def get_per_type_metrics(metrics):
+    if metrics is None:
+        return {}
+    return metrics.get("per_type", {})
+
+
+def format_per_type_label_metrics(label_metrics):
+    if not label_metrics:
+        return "P=n/a R=n/a F1=n/a support=0"
+    return (
+        f"P={label_metrics['p'] * 100:.2f}% "
+        f"R={label_metrics['r'] * 100:.2f}% "
+        f"F1={label_metrics['f'] * 100:.2f}% "
+        f"support={label_metrics.get('support', 0)}"
+    )
+
+
+def print_per_type_metrics_table(split_name, metrics):
+    if metrics is None:
         return
 
-    print(title)
-    for label in sorted(metrics["per_type"]):
-        label_metrics = metrics["per_type"][label]
-        print(
-            f"  {label:<20} "
-            f"P={label_metrics['p']:.2f}% "
-            f"R={label_metrics['r']:.2f}% "
-            f"F1={label_metrics['f']:.2f}%"
-        )
+    per_type_metrics = get_per_type_metrics(metrics)
+    print(f"Final {split_name} metrics | {format_metrics(metrics, include_support=True)}")
+    if not per_type_metrics:
+        return
+
+    print(f"{split_name.capitalize()} metrics by label")
+    for label in sorted(per_type_metrics):
+        print(f"  {label:<20} {format_per_type_label_metrics(per_type_metrics[label])}")
 
 
 def train_model(
     train_data,
     validation_data,
+    test_data,
     model_path,
     epochs,
     batch_size,
@@ -199,6 +264,8 @@ def train_model(
     if validation_data:
         validate_training_data(dataset=validation_data)
         validate_early_stopping_args(early_stopping_start_epoch, early_stopping_patience)
+    if test_data:
+        validate_training_data(dataset=test_data)
 
     random.seed(seed)
 
@@ -209,18 +276,23 @@ def train_model(
     else:
         ner = nlp.get_pipe("ner")
 
-    for _, annotations in train_data:
-        for _, _, label in annotations["entities"]:
-            if label not in ner.labels:
-                ner.add_label(label)
+    for dataset_split in (train_data, validation_data, test_data):
+        for _, annotations in dataset_split:
+            for _, _, label in annotations["entities"]:
+                if label not in ner.labels:
+                    ner.add_label(label)
 
     print(
         f"Dataset split | train={len(train_data)} | "
         f"validation={len(validation_data)} | "
-        f"unlabeled_test_queries={len(test_data)}"
+        f"test={len(test_data)} | "
+        f"unlabeled_test_queries={len(prediction_queries)}"
     )
-    if test_data:
-        print("Note: data.test is unlabeled, so precision/recall/F1 are reported for train and validation only.")
+    if prediction_queries:
+        print(
+            "Note: data.test remains an unlabeled prediction set. "
+            "Train/validation/test metrics below come from the labeled holdout split."
+        )
     if validation_data:
         print(
             "Early stopping | "
@@ -258,7 +330,15 @@ def train_model(
 
                 train_metrics = evaluate_dataset(nlp, train_data)
                 validation_metrics = evaluate_dataset(nlp, validation_data)
-                print_epoch_summary(epoch + 1, epochs, losses, train_metrics, validation_metrics)
+                test_metrics = evaluate_dataset(nlp, test_data)
+                print_epoch_summary(
+                    epoch + 1,
+                    epochs,
+                    losses,
+                    train_metrics,
+                    validation_metrics,
+                    test_metrics,
+                )
 
                 if validation_metrics is None:
                     continue
@@ -277,7 +357,7 @@ def train_model(
                         print(
                             "Early stopping triggered | "
                             f"best_epoch={best_epoch} | "
-                            f"best_validation_F1={best_validation_f1:.2f}%"
+                            f"best_validation_F1={best_validation_f1 * 100:.2f}%"
                         )
                         break
 
@@ -286,7 +366,7 @@ def train_model(
                 print(
                     "Restored best validation checkpoint | "
                     f"epoch={best_epoch} | "
-                    f"validation_F1={best_validation_f1:.2f}%"
+                    f"validation_F1={best_validation_f1 * 100:.2f}%"
                 )
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -295,10 +375,10 @@ def train_model(
 
     final_train_metrics = evaluate_dataset(nlp, train_data)
     final_validation_metrics = evaluate_dataset(nlp, validation_data)
-    print(f"Final train metrics | {format_metrics(final_train_metrics)}")
-    if final_validation_metrics is not None:
-        print(f"Final validation metrics | {format_metrics(final_validation_metrics)}")
-        print_per_type_metrics("Validation metrics by label", final_validation_metrics)
+    final_test_metrics = evaluate_dataset(nlp, test_data)
+    print_per_type_metrics_table("train", final_train_metrics)
+    print_per_type_metrics_table("validation", final_validation_metrics)
+    print_per_type_metrics_table("test", final_test_metrics)
 
     return spacy.load(model_path)
 
@@ -306,7 +386,7 @@ def train_model(
 def collect_results(trained_nlp):
     results = []
 
-    for text in test_data:
+    for text in prediction_queries:
         doc = trained_nlp(text)
         entities = [
             {
@@ -364,10 +444,16 @@ def main():
     args = parse_args()
     with tee_console_output(args.run_log_path):
         dataset = load_train_data(args.train_data_module)
-        train_data, validation_data = split_dataset(dataset, args.validation_split, args.seed)
+        train_data, validation_data, test_data = split_dataset(
+            dataset,
+            args.validation_split,
+            args.test_split,
+            args.seed,
+        )
         trained_nlp = train_model(
             train_data=train_data,
             validation_data=validation_data,
+            test_data=test_data,
             model_path=args.model_path,
             epochs=args.epochs,
             batch_size=args.batch_size,

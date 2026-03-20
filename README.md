@@ -16,6 +16,8 @@ Train the model and generate test results:
 python3 main.py
 ```
 
+By default, training uses an 80/10/10 train/validation/test split with validation-based early stopping and reports train, validation, and test metrics.
+
 Check training-data offsets before training:
 
 ```bash
@@ -38,6 +40,12 @@ Auto-fix offset issues in `data/train.py`:
 
 ```bash
 python3 util/fix_offsets.py --write
+```
+
+Relabel all `FEATURE_COMPONENT` entities in `data/train.py` to `MATERIAL_TECHNIQUE`:
+
+```bash
+python3 util/relabel_feature_component.py --write
 ```
 
 For notebook-based inference, open:
@@ -70,7 +78,7 @@ Notebook for running the trained model on your own inputs:
 
 After `python3 main.py`, the trained model is written to:
 
-`models/expanded_query_derivation/`
+`models/consolidated_query_derivation/`
 
 The test run output is written to:
 

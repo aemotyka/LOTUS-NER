@@ -24,6 +24,7 @@ DEFAULT_SOURCE_FILES = [
     "manually_reviewed_relabelled.json",
     "train_old_relabelled_new_schema.py",
     "priority_patch_500_examples.py",
+    "more_finetuning_examples.py",
 ]
 
 Entity = tuple[int, int, str]
@@ -120,10 +121,21 @@ def load_python_examples(path):
     raw_data = getattr(module, "train_data", None)
     if raw_data is None:
         raw_data = getattr(module, path.stem, None)
+    if raw_data is None:
+        dataset_candidates = []
+        for name, value in vars(module).items():
+            if name.startswith("__") or not isinstance(value, list):
+                continue
+            if all(isinstance(item, tuple) and len(item) == 2 for item in value):
+                dataset_candidates.append((name, value))
+
+        if len(dataset_candidates) == 1:
+            raw_data = dataset_candidates[0][1]
 
     if not isinstance(raw_data, list):
         raise ValueError(
-            f"Expected a dataset list in {path} under `train_data` or `{path.stem}`, "
+            f"Expected a dataset list in {path} under `train_data`, `{path.stem}`, or a single "
+            "dataset-like top-level list, "
             f"got {type(raw_data).__name__}"
         )
 
