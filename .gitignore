@@ -1,10 +1,12 @@
-.venv/
-.vscode/
+/.venv/
+/.vscode/
+/models/
+/outputs/
+/temp-training/
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 .DS_Store
-models/
-outputs/
 run.txt
-temp-training/
+data/*_dropped.txt

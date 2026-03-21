@@ -14,18 +14,25 @@ from spacy.training.example import Example
 from spacy.util import minibatch
 from tqdm.auto import tqdm
 
-from data.test import test_data as prediction_queries
 from util.validation import validate_training_data
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_MODEL_PATH = ROOT / "models" / "consolidated_query_derivation"
 DEFAULT_RESULTS_PATH = ROOT / "outputs" / "test-results.json"
 DEFAULT_RUN_LOG_PATH = ROOT / "run.txt"
+EARLY_STOPPING_LABELS = (
+    "OBJECT_TYPE",
+    "ARTIST",
+    "BRAND",
+    "MATERIAL_TECHNIQUE",
+    "ORIGIN",
+    "PERIOD",
+)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train the spaCy NER model and run predictions on the unlabeled queries in data.test."
+        description="Train the spaCy NER model and write labeled holdout test results."
     )
     parser.add_argument(
         "--train-data-module",
@@ -45,7 +52,7 @@ def parse_args():
         "--results-path",
         type=Path,
         default=DEFAULT_RESULTS_PATH,
-        help="Path to write unlabeled test predictions as JSON.",
+        help="Path to write labeled holdout test results as JSON.",
     )
     parser.add_argument(
         "--run-log-path",
@@ -92,14 +99,17 @@ def parse_args():
     parser.add_argument(
         "--early-stopping-start-epoch",
         type=int,
-        default=25,
+        default=10,
         help="Do not stop early before this 1-based epoch number.",
     )
     parser.add_argument(
         "--early-stopping-patience",
         type=int,
         default=5,
-        help="Stop after this many epochs without validation F1 improvement once early stopping is active.",
+        help=(
+            "Stop after this many epochs without validation macro F1 improvement across "
+            "OBJECT_TYPE, ARTIST, BRAND, MATERIAL_TECHNIQUE, ORIGIN, and PERIOD."
+        ),
     )
     return parser.parse_args()
 
@@ -206,6 +216,41 @@ def format_metrics(metrics, include_support=False):
     return formatted
 
 
+def get_label_metrics(metrics, label):
+    if metrics is None:
+        return None
+    return get_per_type_metrics(metrics).get(label)
+
+
+def format_label_f1(metrics, label):
+    label_metrics = get_label_metrics(metrics, label)
+    if not label_metrics:
+        return "n/a"
+    return f"{label_metrics['f'] * 100:.2f}%"
+
+
+def compute_macro_f1(metrics, labels):
+    if metrics is None:
+        return None
+
+    scores = []
+    for label in labels:
+        label_metrics = get_label_metrics(metrics, label)
+        if label_metrics is None:
+            continue
+        scores.append(label_metrics["f"])
+
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
+def format_score(score):
+    if score is None:
+        return "n/a"
+    return f"{score * 100:.2f}%"
+
+
 def print_epoch_summary(epoch, epochs, losses, train_metrics, validation_metrics, test_metrics):
     ner_loss = losses.get("ner", 0.0)
     print(
@@ -213,7 +258,11 @@ def print_epoch_summary(epoch, epochs, losses, train_metrics, validation_metrics
         f"loss={ner_loss:.4f} | "
         f"train {format_metrics(train_metrics)} | "
         f"validation {format_metrics(validation_metrics)} | "
-        f"test {format_metrics(test_metrics)}"
+        f"test {format_metrics(test_metrics)} | "
+        "CORE_MACRO_F1 "
+        f"train={format_score(compute_macro_f1(train_metrics, EARLY_STOPPING_LABELS))} "
+        f"validation={format_score(compute_macro_f1(validation_metrics, EARLY_STOPPING_LABELS))} "
+        f"test={format_score(compute_macro_f1(test_metrics, EARLY_STOPPING_LABELS))}"
     )
 
 
@@ -263,9 +312,10 @@ def train_model(
     validate_training_data(dataset=train_data)
     if validation_data:
         validate_training_data(dataset=validation_data)
-        validate_early_stopping_args(early_stopping_start_epoch, early_stopping_patience)
     if test_data:
         validate_training_data(dataset=test_data)
+    if validation_data or test_data:
+        validate_early_stopping_args(early_stopping_start_epoch, early_stopping_patience)
 
     random.seed(seed)
 
@@ -285,25 +335,21 @@ def train_model(
     print(
         f"Dataset split | train={len(train_data)} | "
         f"validation={len(validation_data)} | "
-        f"test={len(test_data)} | "
-        f"unlabeled_test_queries={len(prediction_queries)}"
+        f"test={len(test_data)}"
     )
-    if prediction_queries:
-        print(
-            "Note: data.test remains an unlabeled prediction set. "
-            "Train/validation/test metrics below come from the labeled holdout split."
-        )
-    if validation_data:
+    if validation_data or test_data:
         print(
             "Early stopping | "
             f"start_epoch={early_stopping_start_epoch} | "
-            f"patience={early_stopping_patience}"
+            f"patience={early_stopping_patience} | "
+            "metric=validation_macro_core_F1 | "
+            f"labels={','.join(EARLY_STOPPING_LABELS)}"
         )
 
     other_pipes = [pipe for pipe in nlp.pipe_names if pipe != "ner"]
     with nlp.disable_pipes(*other_pipes):
         optimizer = nlp.begin_training()
-        best_validation_f1 = float("-inf")
+        best_validation_macro_f1 = float("-inf")
         best_epoch = 0
         epochs_without_improvement = 0
 
@@ -340,12 +386,15 @@ def train_model(
                     test_metrics,
                 )
 
-                if validation_metrics is None:
+                current_validation_macro_f1 = compute_macro_f1(
+                    validation_metrics,
+                    EARLY_STOPPING_LABELS,
+                )
+                if current_validation_macro_f1 is None:
                     continue
 
-                current_validation_f1 = validation_metrics["f1"]
-                if current_validation_f1 > best_validation_f1:
-                    best_validation_f1 = current_validation_f1
+                if current_validation_macro_f1 > best_validation_macro_f1:
+                    best_validation_macro_f1 = current_validation_macro_f1
                     best_epoch = epoch + 1
                     epochs_without_improvement = 0
                     nlp.to_disk(best_model_dir)
@@ -357,7 +406,8 @@ def train_model(
                         print(
                             "Early stopping triggered | "
                             f"best_epoch={best_epoch} | "
-                            f"best_validation_F1={best_validation_f1 * 100:.2f}%"
+                            "best_validation_macro_core_F1="
+                            f"{best_validation_macro_f1 * 100:.2f}%"
                         )
                         break
 
@@ -366,7 +416,8 @@ def train_model(
                 print(
                     "Restored best validation checkpoint | "
                     f"epoch={best_epoch} | "
-                    f"validation_F1={best_validation_f1 * 100:.2f}%"
+                    "validation_macro_core_F1="
+                    f"{best_validation_macro_f1 * 100:.2f}%"
                 )
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -376,6 +427,12 @@ def train_model(
     final_train_metrics = evaluate_dataset(nlp, train_data)
     final_validation_metrics = evaluate_dataset(nlp, validation_data)
     final_test_metrics = evaluate_dataset(nlp, test_data)
+    final_validation_macro_f1 = compute_macro_f1(final_validation_metrics, EARLY_STOPPING_LABELS)
+    print(
+        "Final validation macro core F1 | "
+        f"labels={','.join(EARLY_STOPPING_LABELS)} | "
+        f"value={format_score(final_validation_macro_f1)}"
+    )
     print_per_type_metrics_table("train", final_train_metrics)
     print_per_type_metrics_table("validation", final_validation_metrics)
     print_per_type_metrics_table("test", final_test_metrics)
@@ -383,29 +440,56 @@ def train_model(
     return spacy.load(model_path)
 
 
-def collect_results(trained_nlp):
+def serialize_entities(entities):
+    return [
+        {
+            "text": text,
+            "label": label,
+            "start": start,
+            "end": end,
+        }
+        for text, label, start, end in entities
+    ]
+
+
+def collect_results(trained_nlp, test_data):
+    metrics = evaluate_dataset(trained_nlp, test_data)
     results = []
 
-    for text in prediction_queries:
+    for text, annotations in test_data:
         doc = trained_nlp(text)
-        entities = [
-            {
-                "text": ent.text,
-                "label": ent.label_,
-                "start": ent.start_char,
-                "end": ent.end_char,
-            }
+        predicted_entities = [
+            (ent.text, ent.label_, ent.start_char, ent.end_char)
             for ent in doc.ents
         ]
-        results.append({"text": text, "entities": entities})
+        gold_entities = [
+            (text[start:end], label, start, end)
+            for start, end, label in annotations.get("entities", [])
+        ]
+        results.append(
+            {
+                "text": text,
+                "gold_entities": serialize_entities(gold_entities),
+                "predicted_entities": serialize_entities(predicted_entities),
+            }
+        )
 
-    return results
+    return {
+        "summary": {
+            "examples": len(test_data),
+            "metrics": metrics,
+        },
+        "results": results,
+    }
 
 
 def write_results(path, results):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(results, indent=2))
-    print(f"Wrote structured test predictions for {len(results)} queries to {path}")
+    print(
+        "Wrote labeled holdout test results for "
+        f"{results['summary']['examples']} examples to {path}"
+    )
 
 
 class TeeStream:
@@ -462,7 +546,7 @@ def main():
             early_stopping_start_epoch=args.early_stopping_start_epoch,
             early_stopping_patience=args.early_stopping_patience,
         )
-        results = collect_results(trained_nlp)
+        results = collect_results(trained_nlp, test_data)
         write_results(args.results_path, results)
 
 
